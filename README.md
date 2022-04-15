@@ -10,7 +10,6 @@ Look at the data in data/ folder:
 
 - See `UMAPs_of_data.ipynb` and `UMAPs/` for UMAP visualisations of the data
 - See `combining_EPIC_and_450k.R` (and perhaps `preprocess_TCGA_data.Rmd`) for how we processed the training/testing set
-- The fully preprocessed training/testing set is saved in `training_testing_maxgap_50_newdata_processed_m_vals.csv`, with labels in `training_testing_maxgap_50_newdata_processed_diagnoses.csv`
 - See `preprocess_validation_data.Rmd` for the preprocessing of the validation datasets 
 
 
@@ -31,12 +30,12 @@ See the testing set results:
     
 Evaluate on external datasets:
 
-- Run `xgboost_external_validation.ipynb` and look in `figs_xgboost_validation/`
+- Run `xgboost_external_validation.ipynb` and/or look in `figs_xgboost_validation/`
 
 
 Get high and moderate confidence predictions:
 
-- Look at `high_moderate_conf_predictions.ipynb` and `figs_xgboost_high_mod_conf/`
+- Look at `high_moderate_conf_predictions.ipynb` and/or `figs_xgboost_high_mod_conf/`
 
 
 Evaluate on multiregion samples:
@@ -103,9 +102,6 @@ Find out what happens when we vary XGBoost's max_tree_depth parameter:
 - S12a: `data/UMAPs_of_data.ipynb`
 - S12b: `data/plot_PCA_of_KIRC_expression.R`
 - S13: `Tree_depth_experiment.ipynb`
-
-### FAQ
-- Where is the raw Brennan dataset? https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE156932 (we were kindly given this dataset directly from the authors in a slightly different format, so the pre-processing steps may be slightly different).
 
 
 <br/>

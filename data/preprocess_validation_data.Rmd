@@ -577,9 +577,9 @@ gset <- gset[[idx]]
 
 gset
 
-test <- data.frame(gset)
+evelonn_data <- data.frame(gset)
 
-test
+
 
 # View(phenoData(gset)@data)
 
