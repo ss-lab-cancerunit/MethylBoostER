@@ -1,0 +1,268 @@
+---
+title: "Feature analysis"
+output: html_notebook
+---
+
+Analysis of the kidney XGBoost features
+
+
+First, load the features
+```{r}
+# can load features from all models or just one:
+analyse_from_model <- 'all' # either 'all', '0', '1', '2', or '3' (all features concatenated or from the specified model)
+
+# read in the features from XGBoost
+library(GenomicRanges)
+get_features <- function(i) {
+  features <- read.table(paste0('../figs_xgboost/xgboost_models/', i, '_important_features.csv'), sep = ',', header = TRUE)
+  
+  # now put as GRanges object
+  features_Gr <- GRanges(seqnames = features$seqnames, ranges = IRanges(start = features$start, end = features$start), strand = '*')
+  
+  return(features_Gr)
+}
+
+if (analyse_from_model == 'all') {
+  union <- read.csv('../figs_xgboost/xgboost_models/features_union.csv')
+  # if two models found the same feature, it is only listed once here
+  features_Gr <- GRanges(seqnames=union$seqnames, ranges=IRanges(start=union$start, end=union$start), strand='*')
+} else {
+  i = as.integer(analyse_from_model)
+  features_Gr <- get_features(i)
+}
+
+
+features_Gr
+
+# save union of features as bed file, to view in genome browser
+if (analyse_from_model == 'all') { 
+  df <- data.frame(
+        seqnames=seqnames(features_Gr),
+        starts=start(features_Gr)-1,
+        ends=end(features_Gr)
+  )
+df$seqnames <- paste0('chr', df$seqnames) # add 'chr'
+
+write.table(df, file="../figs_xgboost/xgboost_models/features_union.bed", quote=F, sep="\t", row.names=F, col.names=F)
+}
+```
+
+Also load the genes involved:
+```{r}
+if (analyse_from_model == 'all') {
+  all_mapped_to_genes <- list()
+  for (i in 0:3) {
+    load(paste0('../figs_xgboost/xgboost_models/', i ,'_features_mapped_to_genes.rda'))
+    mcols(features_mapped_to_genes)$model <- i
+    all_mapped_to_genes[i+1] <- features_mapped_to_genes
+  }
+  features_mapped_to_genes <- unlist(GRangesList(all_mapped_to_genes))
+  
+} else {
+  load(paste0('../figs_xgboost/xgboost_models/', as.integer(analyse_from_model) ,'_features_mapped_to_genes.rda'))
+  
+}
+features_mapped_to_genes
+```
+
+
+Now, lets look at where the features are relative to the genes
+```{r}
+mean(features_Gr %in% features_mapped_to_genes) # most of them (90%) can be mapped to genes
+
+table(features_mapped_to_genes$insideFeature) # most of the ones mapped to genes are inside
+
+```
+Let's try visualising this using the ChipSeeker package.
+Following this great documentation: https://bioconductor.org/packages/release/bioc/vignettes/ChIPseeker/inst/doc/ChIPseeker.html
+```{r}
+library(ChIPseeker)
+
+covplot(features_mapped_to_genes) # there are a few areas with no signal in whatsoever
+
+
+# lets make the tag matrix
+library(EnsDb.Hsapiens.v86) # the latest EnsDb.Hsapiens annotation package I could find
+ensdb <- EnsDb.Hsapiens.v86
+promoter <- getPromoters(TxDb=ensdb, upstream=3000, downstream=3000)
+promoter
+seqlevelsStyle(features_mapped_to_genes) <- seqlevelsStyle(promoter) 
+tagMatrix <- getTagMatrix(features_mapped_to_genes, windows=promoter)
+tagHeatmap(tagMatrix, xlim=c(-3000, 3000), color="red")
+
+
+plotAvgProf(tagMatrix, xlim=c(-3000, 3000),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+
+no_mcols <- features_mapped_to_genes
+mcols(no_mcols) <- NULL
+seqlevelsStyle(no_mcols) <- "Ensembl"
+library(org.Hs.eg.db)
+names(no_mcols) <- paste0('X', 1:length(no_mcols))
+peakAnno <- annotatePeak(no_mcols,TxDb=ensdb, annoDb="org.Hs.eg.db")
+
+plotAnnoBar(peakAnno)
+
+plotDistToTSS(peakAnno,
+              title="Distribution of features relative to TSS")
+```
+
+
+
+
+```{r}
+# looking at genes with most number of features
+sort(table(features_mapped_to_genes$gene_name), decreasing = T)[1:10]
+
+```
+
+
+
+
+
+Get the background probes
+```{r}
+
+load('../figs_xgboost/xgboost_models/input_features_for_background_mapped_to_genes.rda')
+bg_features_mapped_to_genes <- features_mapped_to_genes
+mean(features_Gr %in% bg_features_mapped_to_genes) # 90% can be mapped to genes
+table(bg_features_mapped_to_genes$insideFeature) # most are inside
+bg_features_mapped_to_genes
+
+
+```
+
+Comparing feature distribution around genes (at TSS, in promoter, etc) to the background distribution
+```{r}
+
+# feature distribution:
+peakAnno
+plotAnnoBar(peakAnno)
+plotDistToTSS(peakAnno,
+              title="Distribution of features relative to TSS")
+
+
+# now for background:
+bg_features_mapped_to_genes
+
+bg_no_mcols <- bg_features_mapped_to_genes
+mcols(bg_no_mcols) <- NULL
+seqlevelsStyle(bg_no_mcols) <- "Ensembl"
+names(bg_no_mcols) <- paste0('X', 1:length(bg_no_mcols))
+bg_peakAnno <- annotatePeak(bg_no_mcols,TxDb=ensdb, annoDb="org.Hs.eg.db")
+
+bg_peakAnno
+plotAnnoBar(bg_peakAnno)
+plotDistToTSS(bg_peakAnno,
+              title="Distribution of features relative to TSS")
+
+
+# so background appears to have more features close to the TSS
+# lets see if there is a difference using a stats test
+peakAnno
+bg_peakAnno
+
+# lets plot both on same plot
+pdf('feature_distribution.pdf', width=8, height=4) # and save
+plotAnnoBar(c('features' = peakAnno, 'background' = bg_peakAnno), title="")
+dev.off()
+
+
+plotDistToTSS(c('features' = peakAnno, 'background' = bg_peakAnno))
+```
+
+
+Doing GAT test
+```{r}
+to_process <- bg_peakAnno@detailGenomicAnnotation
+
+
+library(purrr)
+
+background_annotations <- map(seq(1, nrow(to_process)), function(r) ifelse(to_process[r, 'Promoter'], 'Promoter',
+       ifelse(to_process[r, 'fiveUTR'], 'fiveUTR',
+       ifelse(to_process[r, 'threeUTR'], 'threeUTR',
+       ifelse(to_process[r, 'Exon'], 'Exon', 
+       ifelse(to_process[r, 'Intron'], 'Intron',
+       ifelse(to_process[r, 'downstream'], 'downstream',
+       ifelse(to_process[r, 'Intergenic'], 'Intergenic', 
+       ifelse(to_process[r, 'distal_intergenic'], 'distal_intergenic', 'genic' 
+              )))))))))
+
+background_annotations <- data.frame('annotation'=unlist(background_annotations))
+table(background_annotations$annotation)
+
+
+annotation_bed <- data.frame('seqnames'=paste0('chr', seqnames(bg_features_mapped_to_genes)),
+           'start'=start(bg_features_mapped_to_genes) - 1, # bed files are 0 indexed
+           'end'=start(bg_features_mapped_to_genes),
+           'annotation'=background_annotations$annotation
+          )
+
+write.table(annotation_bed, 'gat/annotation_bed_unprocessed.bed', col.names=FALSE, row.names=FALSE, quote=FALSE, sep='\t')
+
+
+
+detail_annotation <- unique(bg_peakAnno@anno@elementMetadata@listData$annotation)
+
+library(stringr)
+r <- 59
+
+detail_annotation_processed <- map(seq(1, length(detail_annotation)), function(r)
+       ifelse(str_detect(detail_annotation[r], 'intron 1'), '1st intron', 
+       ifelse(str_detect(detail_annotation[r], 'Intron'), 'Other intron',
+       ifelse(str_detect(detail_annotation[r], 'exon 1'), '1st exon', 
+       ifelse(str_detect(detail_annotation[r], 'Exon'), 'Other exon', detail_annotation[r]))))
+)
+detail_annotation_processed <- data.frame('annotation'=unlist(detail_annotation_processed))
+
+table(detail_annotation_processed$annotation)
+
+detail_annotation_processed$annotation[1:10]
+annotation_bed$annotation[1:10]
+```
+
+
+Then use bed tools:
+bedtools sort -i annotation_bed_unprocessed.bed > annotation_bed_sorted.bed
+bedtools merge -c 4 -o distinct -i annotation_bed_sorted.bed > annotation_bed_processed.bed
+
+Now get the background bed (this is the same as annotation bed but without the annotations):
+awk 'BEGIN {OFS="\t"}; !($4="")' annotation_bed_processed.bed > workspace.bed
+
+Now get the feature bed:
+```{r}
+# first re-run cell at top of this file to get features_mapped_to_genes
+features_mapped_to_genes
+
+feature_bed <- data.frame('seqnames'=paste0('chr', seqnames(features_mapped_to_genes)),
+           'start'=start(features_mapped_to_genes) - 1, # bed files are 0 indexed
+           'end'=start(features_mapped_to_genes)
+          )
+
+feature_bed
+write.table(feature_bed, 'gat/feature_bed_unprocessed.bed', col.names=FALSE, row.names=FALSE, quote=FALSE, sep='\t')
+
+```
+Then use bed tools:
+bedtools sort -i feature_bed_unprocessed.bed > feature_bed_sorted.bed
+bedtools merge -i feature_bed_sorted.bed > feature_bed_processed.bed
+
+Then, run GAT:
+gat-run.py --ignore-segment-tracks --segments=feature_bed_processed.bed --annotations=annotation_bed_processed.bed --workspace=workspace.bed --num-samples=1000 --log=gat.log > gat.out
+
+Now look at GAT results:
+```{r}
+gat_results <- read.csv('gat/gat.out', sep='\t')
+gat_table_to_save <- gat_results[, c('annotation', 'qvalue', 'l2fold', 'observed', 'expected')] %>%
+  arrange(qvalue, l2fold)
+gat_table_to_save
+
+library(xtable)
+print(xtable(gat_table_to_save, type = "latex", digits=4), file = "gat/gat_results_table_latex.txt")
+
+```
+- 5UTR and downstream not relaiable as so few occurances
+- promoter, intron, 3utr, exon are all significantly different from bg
+- promoter is less than expected, all others are more than expected
+

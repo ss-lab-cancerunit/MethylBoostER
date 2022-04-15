@@ -1,0 +1,14 @@
+colname,overallpath,pooled_labels,predictions,correct
+2014ccRCC07T,1,1,0,False
+2014ccRCC08T,1,1,2,False
+2014ccRCC13T,1,1,2,False
+2014ccRCC15T,1,1,2,False
+2014ccRCC17T,1,1,4,False
+2014ccRCC20N,0,0,2,False
+2014ccRCC21T,1,1,0,False
+2014ccRCC26T,1,1,0,False
+2014ccRCC27T,1,1,2,False
+2014ccRCC29T,1,1,2,False
+2014ccRCC30T,1,1,4,False
+2014ccRCC41T,1,1,4,False
+2014ccRCC45T,1,1,4,False

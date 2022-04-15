@@ -1,0 +1,93 @@
+---
+title: "GREAT analysis"
+output: html_notebook
+---
+
+GREAT analysis.
+
+```{r}
+library(rGREAT)
+
+feature_bed <- read.table('../figs_xgboost/xgboost_models/features_union.bed')
+bg_bed <- read.table('../figs_xgboost/xgboost_models/input_features_for_background.bed')
+  
+job <- submitGreatJob(feature_bed, bg_bed, species='hg38')
+job
+
+tb = getEnrichmentTables(job)
+tb
+
+View(tb$`GO Biological Process`)
+
+sum(tb$`GO Molecular Function`$Hyper_Adjp_BH < 0.05)
+
+sum(tb$`GO Biological Process`$Hyper_Adjp_BH < 0.05)
+
+sum(tb$`GO Cellular Component`$Hyper_Adjp_BH < 0.05)
+
+
+bps <- tb$`GO Biological Process`[tb$`GO Biological Process`$Hyper_Adjp_BH < 0.05, ]
+dim(bps)
+bps
+# now save 
+write.csv(bps, 'GO_BP_rGREAT_from_features_union.csv', row.names = F, quote=F)
+
+```
+
+
+Lets do some plotting
+```{r}
+res = plotRegionGeneAssociationGraphs(job)
+```
+
+
+
+Now make a bar plot of the GO BP results
+Only showing the non redundant GO results
+```{r}
+# read in highlighted excel file
+# code from: https://stackoverflow.com/a/43563918
+library(xlsx)
+bps_highlighted <- loadWorkbook("GO_BP_rGREAT_from_features_union_SSedited.xlsx")
+bps_highlighted <- getSheets(bps_highlighted)[[1]]
+bps_highlighted
+
+rows  <- getRows(bps_highlighted)
+cells <- getCells(rows)
+styles <- sapply(cells, getCellStyle)
+
+cellColor <- function(style) {
+  fg  <- style$getFillForegroundXSSFColor()
+  rgb <- tryCatch(fg$getRgb(), error = function(e) NULL)
+  rgb <- paste(rgb, collapse = "")
+  return(rgb)
+}
+
+cell_cols <- sapply(styles, cellColor)
+
+cells_to_plot <- cells[cell_cols != ""]
+library(purrr)
+cells_to_plot <- map_chr(cells_to_plot, function(c) {c$toString()})
+
+cells_to_plot <- data.frame(t(matrix(cells_to_plot, nrow=14))) # make dataframe
+colnames(cells_to_plot) <-c('ID', 'name',	'Hyper_Total_Regions',	'Hyper_Expected',	'Hyper_Foreground_Region_Hits',	'Hyper_Fold_Enrichment',	'Hyper_Region_Set_Coverage',	'Hyper_Term_Region_Coverage',	'Hyper_Foreground_Gene_Hits',	'Hyper_Background_Gene_Hits',	'Total_Genes_Annotated',	'Hyper_Raw_PValue',	'Hyper_Adjp_BH')
+cells_to_plot$Hyper_Adjp_BH <- as.numeric(cells_to_plot$Hyper_Adjp_BH)
+cells_to_plot$Hyper_Region_Set_Coverage <- as.numeric(cells_to_plot$Hyper_Region_Set_Coverage)
+cells_to_plot$name = str_wrap(cells_to_plot$name, width = 40)
+
+# removing some rows so the bar plot isn't as big:
+# I chose the least significant rows that were similar to another term
+to_remove <- c('GO:0034340', 'GO:0061564', 'GO:0001568', 'GO:0048812', 'GO:0001817', 'GO:0001822', 'GO:0050678', 'GO:0045580')
+cells_to_plot <- cells_to_plot[!cells_to_plot$ID %in% to_remove, ]
+
+# now we can do a barplot
+ggplot(cells_to_plot) + 
+  geom_col(aes(x = -log10(Hyper_Adjp_BH), y = reorder(name, -Hyper_Adjp_BH), fill=Hyper_Region_Set_Coverage), width = 0.8) + 
+  theme_bw() +
+  theme(axis.text = element_text(size=10, lineheight=0.75)) +
+  ylab('') + 
+  xlab('-log10(adjusted p-value)') +
+  labs(fill = 'Fraction of \nfeatures found \nin the term') 
+ggsave('GREAT_analysis_barplot.pdf', width=5.5, height=11)
+```
+

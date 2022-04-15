@@ -1,0 +1,75 @@
+---
+title: "Pre-process TCGA data"
+output: html_notebook
+---
+
+Does all necessary pre-processing on TCGA data. You will need to download the TCGA kidney cancer projects as rda files (I used the TCGAbiolinks package).
+
+Load in the data
+```{r}
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+
+path = '../../methylation-patterns-code/methylation-patterns-izzy/data_preprocessing/' # set this to the location of the TCGA rda files
+
+load(paste(path, 'KIRPmethylation.rda', sep='')) # will create a variable called 'data'
+KIRP_values <- assay(data)
+load(paste(path, 'KIRCmethylation.rda', sep='')) # will create a variable called 'data'
+KIRC_values <- assay(data)
+load(paste(path, 'KICHmethylation.rda', sep='')) # will create a variable called 'data'
+KICH_values <- assay(data)
+
+# Now combine
+mean((row.names(KIRP_values) == row.names(KIRC_values)) & (row.names(KIRC_values) == row.names(KICH_values))) # check same probes
+beta_values <- cbind(KIRP_values, KIRC_values, KICH_values)
+
+
+```
+
+
+```{r}
+# Remove * chromosomes
+probe_granges <- rowRanges(data)
+probe_granges <- probe_granges %>%
+                      as_tibble() %>%
+                      filter(seqnames != "*")
+beta_values_filtered <- beta_values[c(probe_granges$Composite.Element.REF), ]
+
+# Remove probes with an na value fraction of more than 0.05
+na_frac <- is.na(beta_values_filtered) %>%
+  as_tibble() %>%
+  rowMeans()
+beta_values_filtered <- beta_values_filtered[na_frac <= 0.05, ]
+
+
+# get diagnoses
+get_diag <- function(barcode) {
+  diag_num <- str_split(barcode, '-')[[1]][[4]] # get the fourth split
+  diag_num <- substr(diag_num, 1, 1) # , and get its first digit (see https://docs.gdc.cancer.gov/Encyclopedia/pages/TCGA_Barcode/)
+ if (diag_num == 0) return('cancer') # 0 means tumour
+ else return('normal') # 1 means normal
+}
+
+# get cancer type for each sample in beta_values (in right order)
+cancer_types <- c(rep('KIRP', length(colnames(KIRP_values))), 
+                  rep('KIRC', length(colnames(KIRC_values))), 
+                  rep('KICH', length(colnames(KICH_values))))
+
+diagnoses <- map(colnames(beta_values_filtered), get_diag) # get cancer or normal
+diagnoses <- ifelse(diagnoses == "cancer", cancer_types, 'normal') # replace cancer with the cancer type, leave normals as normal
+
+
+```
+
+
+
+Now save as csv
+```{r}
+beta_values_filtered[1:5,1:5]
+diagnoses[1:5]
+
+write.table(beta_values_filtered, 'TCGA/TCGA_beta_values_filtered.csv', quote = FALSE)
+write.table(diagnoses, 'TCGA/TCGA_diganoses.csv', quote = FALSE)
+
+```
+

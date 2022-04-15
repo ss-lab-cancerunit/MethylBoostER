@@ -1,0 +1,594 @@
+---
+title: "Preprocess validation data"
+output: html_notebook
+---
+
+Preprocessing external validation data, completely separately from the training and testing data.
+
+# First, we pre-process the external Chopra data.
+Chopra data from https://osf.io/tw4ye/ (and paper is here: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5354921/)
+
+
+```{r}
+# load in Chopra data
+load('Chopra_external/beta.testing.rda')
+beta.testing <- as.data.frame(beta.testing) # hmm this is 282 samples not 272 like the paper says...
+
+# need to get probe positions from a harmonised 450k annotation
+# using a random TCGA download that includes the probe locations
+library(data.table)
+probe_location_data <- fread('jhu-usc.edu_BLCA.HumanMethylation450.24.lvl-3.TCGA-XF-AAMW-01A-11D-A42F-05.gdc_hg38.txt')
+probe_location_data <- probe_location_data[, c('Composite Element REF', 'Chromosome', 'Start', 'End')]
+
+beta.testing$probe = row.names(beta.testing)
+chopera_validation <- merge(probe_location_data, beta.testing, by.x = 'Composite Element REF', by.y = 'probe', all = TRUE, sort = FALSE)
+
+chopera_GRanges <- GRanges(seqnames =chopera_validation$Chromosome, strand ='*', ranges = IRanges(start = chopera_validation$Start, end = chopera_validation$End))
+mcols(chopera_GRanges) <- chopera_validation[, 5:ncol(chopera_validation)] # all the samples
+
+chopera_GRanges[1:5, 1:5]
+```
+
+Now we have chopra probe positions, we need the positions of features that the model takes in as input
+```{r}
+# we saved the positions of the processed training data. lets read them in here
+
+seqnames_and_start <- fread('training_testing_maxgap_50_newdata_processed_m_vals.csv', select = c('seqnames', 'start'), sep = ',')
+
+input_features_Gr <- GRanges(seqnames = seqnames_and_start$seqnames, ranges = IRanges(start = seqnames_and_start$start, end = seqnames_and_start$start), strand = '*')
+input_features_Gr
+seqlevelsStyle(input_features_Gr) <- seqlevelsStyle(chopera_GRanges)
+```
+
+Now overlap the input features to get the right features for Chopra data
+```{r}
+
+overlaps <- findOverlaps(chopera_GRanges, input_features_Gr)
+overlaps
+
+
+mean(1:length(input_features_Gr) %in% subjectHits(overlaps)) # good so we overlap for every input_feature
+subjectHits(overlaps)[duplicated(subjectHits(overlaps))] # but multiple chopera positions can map to one input_feature position
+# lets just delete one, it should be very similar methylation as it is the same position
+
+
+# need to order because for some reason becomes unordered
+ordered_overlaps <- arrange(as.data.frame(overlaps), subjectHits)
+ordered_overlaps
+
+chopra_input_Gr <- chopera_GRanges[ordered_overlaps$queryHits][!duplicated(granges(chopera_GRanges[ordered_overlaps$queryHits]))]
+
+# check features are correct
+mean(seqnames(chopra_input_Gr) == paste0('chr', seqnames_and_start$seqnames))
+mean(start(chopra_input_Gr) == seqnames_and_start$start) # yay both are 1
+
+chopra_input_Gr[1:10,1:10]
+```
+
+
+
+And also load in testing diagnoses and process
+```{r}
+load('Chopra_external/pdata.testing.rda')
+
+mean(row.names(pdata.testing) %in% colnames(mcols(chopra_input_Gr)))
+colnames(mcols(chopra_input_Gr))[!(colnames(mcols(chopra_input_Gr)) %in% row.names(pdata.testing))]
+
+# need to throw away samples we don't have labelled data for
+chopra_input_Gr <- chopra_input_Gr[, colnames(mcols(chopra_input_Gr)) %in% row.names(pdata.testing)]
+
+pdata.testing
+chopera_data_info <- data.frame(label = pdata.testing$TissueType, id =  row.names(pdata.testing))
+
+# also want to remove AMLs
+to_remove <- chopera_data_info[chopera_data_info$label == 'AML', 'id']
+chopra_input_Gr <- chopra_input_Gr[, !(colnames(mcols(chopra_input_Gr)) %in% to_remove)]
+chopera_data_info <- chopera_data_info[chopera_data_info$label != 'AML',]
+
+# and remove Other samples
+to_remove <- chopera_data_info[chopera_data_info$label == 'Other', 'id']
+chopra_input_Gr <- chopra_input_Gr[, !(colnames(mcols(chopra_input_Gr)) %in% to_remove)]
+chopera_data_info <- chopera_data_info[chopera_data_info$label != 'Other',]
+
+
+mean(colnames(mcols(chopra_input_Gr)) == chopera_data_info$id) # wow it is in the same order
+
+chopra_input_Gr[1:10,1:10]
+dim(as.data.frame(chopra_input_Gr))
+chopera_data_info
+```
+
+
+And now we can save
+```{r}
+
+chopra_input_df <- as.data.frame(chopra_input_Gr)
+chopra_input_df
+
+mean(chopra_input_df$start == seqnames_and_start$start) # double check rows are in correct order
+mean(colnames(chopra_input_df)[6:length(colnames(chopra_input_df))] == paste0('X', chopera_data_info$id)) # double check columns are in correct order
+
+
+write.csv(chopra_input_df, 'Chopra_external/preprocessed_validation_beta.testing.csv')
+write.csv(chopera_data_info, 'Chopra_external/preprocessed_validation_pdata.testing_diagnoses.csv')
+```
+
+
+
+Now checking the pre-processed validation data - does it look like we pre-processed it right?
+```{r}
+chopra_input_df <- fread('Chopra_external/preprocessed_validation_beta.testing.csv')
+chopera_data_info <- fread('Chopra_external/preprocessed_validation_pdata.testing_diagnoses.csv', header = TRUE)
+
+chopra_input_df[1:5,1:10]
+
+table(chopera_data_info$label)
+
+
+# comparing the probes to some training probes to see if they look vaguely similar
+train <- fread('training_testing_maxgap_50_newdata_processed_m_vals.csv')
+train <- train[, 4:ncol(train)]
+train_diag <- fread('training_testing_diagnoses_maxgap_50_newdata.csv')
+train_diag$overallpath[1:10] # first are 3s = oncocytoma
+train[1:5, 1:10] #rows are features (probes)
+
+# oncocytomas in test: 8784241087_R01C01, 8795194005_R02C02, 8795194005_R03C02, 8795194005_R06C01
+betas <- chopra_input_df[1:10, c('X8784241087_R01C01', 'X8795194005_R02C02', 'X8795194005_R03C02', 'X8795194005_R06C01')]
+
+log2(betas/(1-betas)) # yes looks similar between samples!
+
+
+
+# looking at the PCA to see if there are the normal clusters
+no_nas <- na.omit(chopra_input_df[, 7:ncol(chopra_input_df)])
+
+pca_res <- prcomp(t(no_nas))
+
+pca_data <- as.data.frame(pca_res$x)
+library(ggplot2)
+ggplot(data = pca_data) +
+  geom_point(aes(x = PC1, y = PC2, colour = chopera_data_info$label)) 
+# looks good, have some clusters
+
+```
+
+This looks like we processed it right.
+
+
+
+
+# Now, pre-processing Stanford external data.
+Note that Stanford refers to the Brennan dataset.
+```{r}
+stanford_data <- readRDS('Brennandata/kevinmethylationdata.rds') 
+# note: this data was kindly given to us directly from the authors. You can find this dataset at: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE156932. This is in a slightly different format, so the preprocessing steps may be slightly different.
+stanford_data <- data.frame(stanford_data)
+
+View(head(stanford_data))
+
+# need to get probe positions from a harmonised 450k annotation
+library(data.table)
+probe_location_data <- fread('jhu-usc.edu_BLCA.HumanMethylation450.24.lvl-3.TCGA-XF-AAMW-01A-11D-A42F-05.gdc_hg38.txt', data.table = F)
+probe_location_data <- probe_location_data[, c('Composite Element REF', 'Chromosome', 'Start', 'End')]
+
+stanford_data$probe = row.names(stanford_data)
+stanford_data_probe_locs <- merge(probe_location_data, stanford_data, by.x = 'Composite Element REF', by.y = 'probe', all = TRUE, sort = FALSE)
+
+stanford_GRanges <- GRanges(seqnames =stanford_data_probe_locs$Chromosome, strand ='*', ranges = IRanges(start = stanford_data_probe_locs$Start, end = stanford_data_probe_locs$End))
+mcols(stanford_GRanges) <- stanford_data_probe_locs[, 5:ncol(stanford_data_probe_locs)] # all the samples
+
+
+stanford_GRanges[1:5, 1:5]
+
+
+```
+
+
+Now we have stanford probe positions, we need the positions of features that the model takes in as input
+```{r}
+# we saved the positions of the processed training data. lets read them in here
+seqnames_and_start <- fread('training_testing_maxgap_50_newdata_processed_m_vals.csv', select = c('seqnames', 'start'), sep = ',')
+
+input_features_Gr <- GRanges(seqnames = seqnames_and_start$seqnames, ranges = IRanges(start = seqnames_and_start$start, end = seqnames_and_start$start), strand = '*')
+input_features_Gr
+seqlevelsStyle(input_features_Gr) <- seqlevelsStyle(stanford_GRanges)
+```
+
+Now overlap the input features to get the right features for Stanford data
+```{r}
+overlaps <- findOverlaps(stanford_GRanges, input_features_Gr)
+overlaps
+
+mean(1:length(input_features_Gr) %in% subjectHits(overlaps)) # good so we overlap for every input_feature
+subjectHits(overlaps)[duplicated(subjectHits(overlaps))] # but multiple positions can map to one input_feature position
+# lets just delete one, it should be very similar methylation as it is the same position
+
+# need to order because for some reason becomes unordered
+ordered_overlaps <- arrange(as.data.frame(overlaps), subjectHits)
+ordered_overlaps
+
+stanford_input_Gr <- stanford_GRanges[ordered_overlaps$queryHits][!duplicated(granges(stanford_GRanges[ordered_overlaps$queryHits]))]
+
+# check features are correct
+mean(seqnames(stanford_input_Gr) == paste0('chr', seqnames_and_start$seqnames))
+mean(start(stanford_input_Gr) == seqnames_and_start$start) # yay both are 1
+
+stanford_input_Gr[1:5,1:5]
+
+for (c in colnames(mcols(stanford_input_Gr))) { # some features are always NA (189), this suggests they couldn't be mapped to input features. This also shows some samples have a very high NA number, the worst is X200394970099_R06C01 with 3716 NAs.
+  print(sum(is.na(mcols(stanford_input_Gr)[, c])))
+}
+```
+
+Now get the diagnoses and process
+```{r}
+stanford_diagnoses <- read.table('Brennandata/Kevinclinicaldata.csv', sep = ',', header = TRUE)
+# there doesn't seem to be any difference between the .csv and .txt files
+
+table(stanford_diagnoses$Sample_Type)
+
+# check order is same
+colnames(mcols(stanford_input_Gr)) == paste('X', stanford_diagnoses$X, sep = '')
+
+
+colnames(mcols(stanford_input_Gr))
+
+colnames(mcols(stanford_input_Gr)) %in% paste('X', stanford_diagnoses$X, sep = '')
+
+
+to_keep <- colnames(mcols(stanford_input_Gr)) %in% paste('X', stanford_diagnoses$X, sep = '')
+mcols(stanford_input_Gr) <- mcols(stanford_input_Gr)[, to_keep]
+
+# now is in right order, with just samples in diagnoses
+colnames(mcols(stanford_input_Gr)) == paste('X', stanford_diagnoses$X, sep = '')
+
+stanford_diagnoses <- stanford_diagnoses[, c('X', 'Sample_Type')]
+
+# now keep only straight-forward diagnoses
+valid_diagnoses <- c('Oncocytoma', 'RCC-Chromophobe', 'Normal kidney parenchyma', 'Clear cell RCC')
+to_keep <- stanford_diagnoses$Sample_Type %in% valid_diagnoses
+
+stanford_diagnoses <- stanford_diagnoses[to_keep, ]
+mcols(stanford_input_Gr) <- mcols(stanford_input_Gr)[, to_keep]
+
+dim(stanford_diagnoses)
+dim(mcols(stanford_input_Gr))
+# and check same order:
+mean(paste('X', stanford_diagnoses$X, sep = '') == colnames(mcols(stanford_input_Gr)))
+
+```
+
+
+Now to put stanford_input_Gr in a dataframe and save them both
+```{r}
+to_save <- data.frame(stanford_input_Gr)
+to_save <- to_save[, !(colnames(to_save) %in% c('end', 'width', 'strand'))] # remove unneeded columns
+to_save$seqnames <- str_remove_all(as.character(to_save$seqnames), 'chr')
+
+# check samples and features still in right order:
+mean(paste0('X', stanford_diagnoses$X) == colnames(to_save)[3:length(colnames(to_save))])
+mean(to_save$seqnames == seqnames_and_start$seqnames)
+mean(to_save$start == seqnames_and_start$start)
+
+write.csv(to_save, 'Brennandata/preprocessed_validation_beta.csv')
+write.csv(stanford_diagnoses, 'Brennandata/preprocessed_validation_diagnoses.csv')
+
+
+
+```
+
+
+Now plot PCA and check looks ok
+```{r}
+# looking at the PCA to see if there are the normal clusters
+no_nas <- na.omit(to_save[, 3:ncol(to_save)])
+
+pca_res <- prcomp(t(no_nas))
+
+pca_data <- as.data.frame(pca_res$x)
+library(ggplot2)
+ggplot(data = pca_data) +
+  geom_point(aes(x = PC1, y = PC2, colour = stanford_diagnoses$Sample_Type)) 
+# looks ok, have some clusters
+
+```
+
+
+Now I will run them through validate validation data, and create UMAPs of them with train/test data, to look for potential issues.
+
+
+# Now for pre-processing of GSE61441 KIRC external data.
+
+First read in the data:
+```{r}
+library(data.table)
+GSE_data <- fread('Wei_external/GSE61441_Unmethylated_and_methylated_signal_intensities.csv', data.table = FALSE)
+
+# Need to calculate the beta values from the raw count data
+library(stringr)
+met_cols <- str_detect(colnames(GSE_data), ' Methylated')
+unmet_cols <- str_detect(colnames(GSE_data), ' Unmethylated')
+met_data <- GSE_data[, met_cols ]
+unmet_data <- GSE_data[, unmet_cols ]
+
+head(met_data)
+head(unmet_data)
+
+# the sample orders are still the same:
+mean(str_remove(colnames(met_data), ' Methylated signal') == str_remove(colnames(unmet_data), ' Unmethylated Signal'))
+
+# so we can do the beta = met/(met + unmet) calculation
+betas <- met_data/(met_data + unmet_data)
+colnames(betas) <- str_remove(colnames(betas), ' Methylated signal')
+head(betas)
+
+# manual check:
+i = 4
+j = 3
+betas[i, j] == met_data[i, j]/(met_data[i, j] + unmet_data[i, j])
+
+```
+
+Now to turn the probe names into probe locations
+```{r}
+# need to get probe positions from a harmonised 450k annotation
+probe_location_data <- fread('jhu-usc.edu_BLCA.HumanMethylation450.24.lvl-3.TCGA-XF-AAMW-01A-11D-A42F-05.gdc_hg38.txt', data.table = F)
+probe_location_data <- probe_location_data[, c('Composite Element REF', 'Chromosome', 'Start', 'End')]
+
+betas$probe = GSE_data$ID_REF
+beta_data_probe_locs <- merge(probe_location_data, betas, by.x = 'Composite Element REF', by.y = 'probe', all = TRUE, sort = FALSE)
+
+beta_GRanges <- GRanges(seqnames = beta_data_probe_locs$Chromosome, strand ='*', ranges = IRanges(start = beta_data_probe_locs$Start, end = beta_data_probe_locs$End))
+mcols(beta_GRanges) <- beta_data_probe_locs[, 5:ncol(beta_data_probe_locs)] # all the samples
+
+
+# we saved the positions of the processed training data. lets read them in here
+seqnames_and_start <- fread('training_testing_maxgap_50_newdata_processed_m_vals.csv', select = c('seqnames', 'start'), sep = ',')
+
+input_features_Gr <- GRanges(seqnames = seqnames_and_start$seqnames, ranges = IRanges(start = seqnames_and_start$start, end = seqnames_and_start$start), strand = '*')
+input_features_Gr
+seqlevelsStyle(input_features_Gr) <- seqlevelsStyle(beta_GRanges)
+
+# now to find overlaps
+overlaps <- findOverlaps(beta_GRanges, input_features_Gr)
+overlaps
+
+mean(1:length(input_features_Gr) %in% subjectHits(overlaps)) # good so we overlap for every input_feature
+subjectHits(overlaps)[duplicated(subjectHits(overlaps))] # but multiple chopera positions can map to one input_feature position
+# lets just delete one, it should be very similar methylation as it is the same position
+
+# need to order because for some reason becomes unordered
+ordered_overlaps <- arrange(as.data.frame(overlaps), subjectHits)
+ordered_overlaps
+
+beta_input_Gr <- beta_GRanges[ordered_overlaps$queryHits][!duplicated(granges(beta_GRanges[ordered_overlaps$queryHits]))]
+
+# check features are correct
+mean(seqnames(beta_input_Gr) == paste0('chr', seqnames_and_start$seqnames))
+mean(start(beta_input_Gr) == seqnames_and_start$start) # yay both are 1
+
+beta_input_Gr[1:5,1:5]
+
+for (c in colnames(mcols(beta_input_Gr))) { # not too many NAs which is good
+  print(sum(is.na(mcols(beta_input_Gr)[, c])))
+}
+
+
+
+```
+
+Now get the diagnoses and save 
+```{r}
+tumour_or_normal <- str_sub(colnames(mcols(beta_input_Gr)), 12, 13)
+diagnoses <- data.frame(sample_id = colnames(mcols(beta_input_Gr)), label = ifelse(tumour_or_normal == 'T', 'KIRC', 'Normal'))
+
+
+to_save <- data.frame(beta_input_Gr)
+to_save <- to_save[, !(colnames(to_save) %in% c('end', 'width', 'strand'))] # remove unneeded columns
+to_save$seqnames <- str_remove_all(as.character(to_save$seqnames), 'chr')
+
+# chekc samples and features still in right order:
+mean(paste0('X', diagnoses$sample_id) == colnames(to_save)[3:length(colnames(to_save))])
+mean(to_save$seqnames == seqnames_and_start$seqnames)
+mean(to_save$start == seqnames_and_start$start)
+
+write.csv(to_save, 'Wei_external/preprocessed_validation_beta.csv')
+write.csv(diagnoses, 'Wei_external/preprocessed_validation_diagnoses.csv')
+
+
+```
+
+Now plot PCA and check looks ok
+```{r}
+# looking at the PCA to see if there are the normal clusters
+no_nas <- na.omit(to_save[, 3:ncol(to_save)])
+
+pca_res <- prcomp(t(no_nas))
+
+pca_data <- as.data.frame(pca_res$x)
+library(ggplot2)
+ggplot(data = pca_data) +
+  geom_point(aes(x = PC1, y = PC2, colour = diagnoses$label)) 
+# looks good, have 2 clusters ish
+
+```
+
+
+Now I will run them through validate validation data, and create UMAPs of them with train/test data, to look for potential issues.
+
+
+
+# Pre-processing of Evelonn data - normalised beta values
+
+```{r}
+evelonn_data <- readRDS('Evelonn_external/evelonndataset_450k_downloadedGEO_210825.rds')
+evelonn_data
+
+evelonn_sample_details <- read.table('Evelonn_external/evelonn_sample_details.csv', sep=',', header=T)
+
+colnames(evelonn_data) <- str_remove(colnames(evelonn_data), 'GSE113501_series_matrix.txt.gz.')
+
+evelonn_data
+
+wanted_probes_and_positions <- read.table('training_testing_maxgap_50_newdata_processed_probe_names.csv', sep=',', header=T)
+
+
+nas <- (is.na(evelonn_data))
+sum(nas)
+mean(nas) # a lot more NAs than the raw data (processed above)
+library(pheatmap)
+nas_subset <- nas[, 1:5000]
+pheatmap(as.matrix(nas_subset)*1, cluster_rows = F, cluster_cols=F) # NAs are different for multiregion samples
+
+
+
+# so now we can select these probes
+evelonn_data_wanted_probes <- evelonn_data[, as.character(wanted_probes_and_positions$Composite.Element.REF)]
+
+evelonn_data_wanted_probes
+
+sum(colMeans(is.na(evelonn_data_wanted_probes)) == 1)
+
+mean(colnames(evelonn_data_wanted_probes) == as.character(wanted_probes_and_positions$Composite.Element.REF))
+
+
+# transpose
+evelonn_data_wanted_probes_t <- t(evelonn_data_wanted_probes)
+evelonn_data_wanted_probes_t <- data.frame(evelonn_data_wanted_probes_t)
+
+
+# now save
+evelonn_sample_details$diagnosis <- ifelse(str_detect(evelonn_sample_details$stage, 'TumorFree'), 'Normal', 'ccRCC')
+write.csv(evelonn_data_wanted_probes_t, 'Evelonn_external/preprocessed_validation_beta_from_normalised_data.csv')
+write.csv(evelonn_sample_details, 'Evelonn_external/preprocessed_validation_beta_diagnoses_from_normalised_data.csv')
+```
+
+
+# Now check this data looks right
+```{r fig.width=10}
+evelonn_processed <- fread('Evelonn_external/preprocessed_validation_beta_from_normalised_data.csv')
+evelonn_diagnoses <- fread('Evelonn_external/preprocessed_validation_beta_diagnoses_from_normalised_data.csv', header = TRUE)
+
+evelonn_processed[1:5,1:10]
+
+
+# comparing the probes to some training probes to see if they look vaguely similar
+train <- data.frame(fread('training_testing_maxgap_50_newdata_processed_m_vals.csv'))
+row.names(train) <- paste(train$seqnames, train$start)
+train <- train[, 4:ncol(train)]
+train_diag <- data.table(fread('training_testing_diagnoses_maxgap_50_newdata.csv'))
+train_diag <- train_diag[3:nrow(train_diag), ]
+train_diag$overallpath[500:507] 
+train[1:10, 500:507] 
+
+betas <- evelonn_processed[1:10, 20:29]
+
+log2(betas/(1-betas)) # these look much more similar than the previous non-normalised processed data
+
+
+# looking at normals:
+betas <- evelonn_processed[1:10, 116:120]
+log2(betas/(1-betas)) 
+train_normals <- train[, train_diag$overallpath == 0]
+# yes these look good too
+
+# looking at the PCA to see if there are the normal clusters
+no_nas <- na.omit(evelonn_processed[, 2:ncol(evelonn_processed)])
+
+pca_res <- prcomp(t(no_nas))
+
+pca_data <- as.data.frame(pca_res$x)
+evelonn_diagnoses <- as.data.frame(evelonn_diagnoses)
+row.names(evelonn_diagnoses) <- evelonn_diagnoses$accession
+library(ggplot2)
+library(ggrepel)
+ggplot(data = pca_data) +
+  geom_point(aes(x = PC1, y = PC2, colour = evelonn_diagnoses$diagnosis, shape=str_detect(evelonn_diagnoses$name, 'Pat')), size=3)
+
+
+incorrect_evelonns <- read.csv('../figs_xgboost_validation/incorrectly_predicted_Evelonn_samples_model_3.csv')
+
+# now look at where the incorrectly predicted samples are
+ggplot(data = pca_data) +
+  geom_point(aes(x = PC1, y = PC2, shape=str_detect(evelonn_diagnoses$name, 'Pat'), color=evelonn_diagnoses$accession %in% incorrect_evelonns$colname), size = 3) +
+  theme(legend.title = element_text( size=8), legend.text=element_text(size=8))
+
+
+# get more details about the samples, like metastasis status
+gset <- getGEO("GSE113501", GSEMatrix =TRUE, getGPL=FALSE) # WARNING: takes a while!!
+if (length(gset) > 1) idx <- grep("GPL13534", attr(gset, "names")) else idx <- 1
+gset <- gset[[idx]]
+sample_details <- data.frame(accession=gset$geo_accession, stage=gset$`tnm stage:ch1`, name=gset$title, metastasis_status=gset$`progress status (m0-pf:ch1`, gender=gset$characteristics_ch1.1, age=gset$`age:ch1`)
+mean(sample_details$accession == evelonn_diagnoses$accession) # check same order
+
+
+# metastasis status:
+ggplot(data = pca_data) +
+  geom_point(aes(x = PC1, y = PC2, colour = str_sub(sample_details$metastasis_status, 164), shape=str_detect(evelonn_diagnoses$name,'Pat')), size=3) # doesn't cluster with metastasis stage...
+
+# stage:
+ggplot(data = pca_data) +
+  geom_point(aes(x = PC1, y = PC2, colour = sample_details$stage, shape=str_detect(evelonn_diagnoses$name,'Pat')), size=3) 
+
+# gender:
+ggplot(data = pca_data) +
+  geom_point(aes(x = PC1, y = PC2, colour = sample_details$gender, shape=str_detect(evelonn_diagnoses$name,'Pat')), size=3) 
+
+# age:
+ggplot(data = pca_data) +
+  geom_point(aes(x = PC1, y = PC2, colour = as.integer(as.character(sample_details$age)), shape=str_detect(evelonn_diagnoses$name,'Pat')), size=3)
+
+
+
+# working theory: the right cluster are different somehow, maybe mistaken chRCC or metastases that our classifier cannot recognise. I predict the 3 single ccRCC samples will also be misclassified
+# this is indeed correct
+
+right_cluster_gsms <- row.names(pca_data[pca_data$PC1 > 20, ])
+
+evelonn_sample_details[evelonn_sample_details$accession %in% right_cluster_gsms, ]
+```
+
+# Does the outlying cluster associate with purity?
+```{r fig.width=10}
+purity_ests <- readRDS('Evelonn_external/purity_evelonn_forizzy_using156normalisedprobes_210914.rds')
+write.csv(purity_ests, 'Evelonn_external/purity_evelonn_forizzy_using156normalisedprobes_210914.csv')
+evelonn_diagnoses
+evelonn_diagnoses_with_purity <- left_join(evelonn_diagnoses, purity_ests, by = c('accession'='sample.id'))
+mean(evelonn_diagnoses$accession == evelonn_diagnoses_with_purity$accession)
+
+ggplot(data = pca_data) +
+  geom_point(aes(x = PC1, y = PC2, colour = evelonn_diagnoses_with_purity$purity, shape=str_detect(evelonn_diagnoses$name,'Pat')), size=3)
+
+```
+
+
+
+
+# Code to download Evelonn data from GEO:
+```{r}
+library(GEOquery)
+library(limma)
+
+# load series and platform data from GEO
+  
+gset <- getGEO("GSE113501", GSEMatrix =TRUE, getGPL=FALSE)
+if (length(gset) > 1) idx <- grep("GPL13534", attr(gset, "names")) else idx <- 1
+gset <- gset[[idx]]
+
+gset
+
+test <- data.frame(gset)
+
+test
+
+# View(phenoData(gset)@data)
+
+sample_details <- data.frame(accession=gset$geo_accession, stage=gset$`tnm stage:ch1`, name=gset$title, metastasis_status=gset$`progress status (m0-pf:ch1`)
+
+write.table(sample_details, 'Evelonn_external/evelonn_sample_details.csv', sep=',', row.names=F)
+
+
+```
+
+
+

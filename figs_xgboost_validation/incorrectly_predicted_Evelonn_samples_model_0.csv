@@ -1,0 +1,24 @@
+colname,name,overallpath,pooled_labels,predictions,correct
+GSM3107983,"genomic DNA from tumor, ccRCC sample 3",1,1,2,False
+GSM3107990,"genomic DNA from tumor, ccRCC sample 10",1,1,2,False
+GSM3107994,"genomic DNA from tumor, ccRCC sample 14",1,1,2,False
+GSM3108014,"genomic DNA from tumor, ccRCC sample 34",1,1,2,False
+GSM3108019,"genomic DNA from tumor, ccRCC sample 39",1,1,4,False
+GSM3108032,"genomic DNA from tumor, ccRCC sample 52",1,1,4,False
+GSM3108033,"genomic DNA from tumor, ccRCC sample 53",1,1,2,False
+GSM3108038,"genomic DNA from tumor, ccRCC sample 58",1,1,4,False
+GSM3108043,"genomic DNA from tumor, ccRCC sample 63",1,1,4,False
+GSM3108053,"genomic DNA from tumor, ccRCC sample 73",1,1,2,False
+GSM3108054,"genomic DNA from tumor, ccRCC sample 74",1,1,2,False
+GSM3108059,"genomic DNA from tumor, ccRCC sample 79",1,1,2,False
+GSM3108061,"genomic DNA from tumor, ccRCC sample 81",1,1,2,False
+GSM3108068,"genomic DNA from tumor, ccRCC sample 88",1,1,2,False
+GSM3108079,"genomic DNA from tumor, ccRCC sample 99",1,1,2,False
+GSM3108108,"genomic DNA from tumor, ccRCC sample Pat1_1",1,1,2,False
+GSM3108109,"genomic DNA from tumor, ccRCC sample Pat1_2",1,1,2,False
+GSM3108110,"genomic DNA from tumor, ccRCC sample Pat1_3",1,1,2,False
+GSM3108114,"genomic DNA from tumor, ccRCC sample Pat3_1",1,1,2,False
+GSM3108115,"genomic DNA from tumor, ccRCC sample Pat3_2",1,1,2,False
+GSM3108116,"genomic DNA from tumor, ccRCC sample Pat3_3",1,1,2,False
+GSM3108123,"genomic DNA from tumor, ccRCC sample Pat6_1",1,1,2,False
+GSM3108124,"genomic DNA from tumor, ccRCC sample Pat6_2",1,1,2,False

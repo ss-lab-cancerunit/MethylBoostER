@@ -1,0 +1,12 @@
+colname,stage,name,label,overallpath,pooled_labels
+GSM3107990,TNM II,"genomic DNA from tumor, ccRCC sample 10",ccRCC,1,1
+GSM3108043,TNM II,"genomic DNA from tumor, ccRCC sample 63",ccRCC,1,1
+GSM3108054,TNM I,"genomic DNA from tumor, ccRCC sample 74",ccRCC,1,1
+GSM3108059,TNM II,"genomic DNA from tumor, ccRCC sample 79",ccRCC,1,1
+GSM3108068,TNM III,"genomic DNA from tumor, ccRCC sample 88",ccRCC,1,1
+GSM3108108,TNM I,"genomic DNA from tumor, ccRCC sample Pat1_1",ccRCC,1,1
+GSM3108109,TNM I,"genomic DNA from tumor, ccRCC sample Pat1_2",ccRCC,1,1
+GSM3108110,TNM I,"genomic DNA from tumor, ccRCC sample Pat1_3",ccRCC,1,1
+GSM3108114,TNM I,"genomic DNA from tumor, ccRCC sample Pat3_1",ccRCC,1,1
+GSM3108123,TNM II,"genomic DNA from tumor, ccRCC sample Pat6_1",ccRCC,1,1
+GSM3108124,TNM II,"genomic DNA from tumor, ccRCC sample Pat6_2",ccRCC,1,1

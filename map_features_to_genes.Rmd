@@ -1,0 +1,145 @@
+---
+title: "Map features to genes"
+output: html_notebook
+---
+
+Mapping the CpGs from the XGBoost models to genes. 
+A probe is mapped to a gene if it is within the gene or within the 1500bp upstream of the gene.
+```{r}
+# read in the features from XGBoost
+i <- 0
+
+library(GenomicRanges)
+get_features <- function(i) {
+  features <- read.table(paste0('figs_xgboost/xgboost_models/', i, '_important_features.csv'), sep = ',', header = TRUE)
+  
+  # now put as GRanges object
+  features_Gr <- GRanges(seqnames = features$seqnames, ranges = IRanges(start = features$start, end = features$start), strand = '*')
+  
+  return(features_Gr)
+}
+
+features_Gr <- get_features(i)
+
+```
+
+
+Get information about all genes from biomart (in GRanges)
+```{r}
+get_biomart_data <- function() {
+  library(biomaRt)
+  ensembl = useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl")
+  
+  chromosomes = c(as.character(1:22), "X", "Y") # only get these chromosomes
+  attributes = c("ensembl_gene_id", "external_gene_name", "chromosome_name", "start_position", "end_position", "strand", "gene_biotype", "hgnc_symbol")
+  
+  biomart_data <- getBM(attributes = attributes, filters = "chromosome_name", values = chromosomes, mart = ensembl, useCache = F) # get all types, on normal chromosomes
+  
+  return(biomart_data)
+}
+
+biomart_data <- get_biomart_data() # gets data about 60578 genes
+
+# turning to granges:
+bed_like <- dplyr::select(biomart_data, chromosome_name, start_position, end_position, strand, ensembl_gene_id, external_gene_name)
+colnames(bed_like) <- c("seqnames", "start", "end", "strand", "ensembl_gene_id", "gene_name")
+library(ChIPpeakAnno)
+geneLocations <- toGRanges(bed_like)
+
+seqlevelsStyle(geneLocations) <- seqlevelsStyle(features_Gr) # changing chromosome name syntax to the island one so they are using the same naming syntax
+
+geneLocations
+```
+
+
+Now map our probes to genes using our biomart gene annotation data
+```{r}
+
+map_to_genes <- function(features_Gr, geneLocations) {
+  range_to_allow <- 1500
+  distances <- annotatePeakInBatch(features_Gr, AnnotationData = geneLocations, output = "overlapping", bindingType = "fullRange", bindingRegion = c(-range_to_allow, 1), select = "all")
+  return(distances)
+}
+distances <- map_to_genes(features_Gr, geneLocations)
+```
+
+
+Now save mapping and gene lists
+```{r}
+save_mapping <- function(distances) {
+  features_mapped_to_genes <- distances[, !(colnames(mcols(distances)) %in% c('peak', 'feature'))]
+  save(features_mapped_to_genes, file = paste0('figs_xgboost/xgboost_models/', i, '_features_mapped_to_genes.rda'))
+  
+  features_mapped_to_genes_df <- data.frame(features_mapped_to_genes)
+  write.csv(features_mapped_to_genes_df, paste0('figs_xgboost/xgboost_models/', i, '_features_mapped_to_genes.csv'))
+  
+  gene_list <- mcols(features_mapped_to_genes)[, c('ensembl_gene_id', 'gene_name')]
+  gene_list <- unique(gene_list)
+  
+  write.table(gene_list, file = paste0('figs_xgboost/xgboost_models/', i, '_gene_list.csv'), row.names = FALSE)
+  
+}
+
+save_mapping(distances)
+
+```
+
+
+Now run for all 4 models
+```{r}
+for (i in 0:3) {
+  print(i)
+  features_Gr <- get_features(i)
+  distances <- map_to_genes(features_Gr, geneLocations)
+  save_mapping(distances)
+}
+```
+
+
+Map background features to genes:
+```{r}
+
+features <- read.table(paste0('figs_xgboost/xgboost_models/input_features_for_background.csv'), sep = ',', header = TRUE)
+# now put as GRanges object
+features_Gr <- GRanges(seqnames = features$seqnames, ranges = IRanges(start = features$start, end = features$start), strand = '*')
+
+distances <- map_to_genes(features_Gr, geneLocations)
+
+distances
+
+# now save
+features_mapped_to_genes <- distances[, !(colnames(mcols(distances)) %in% c('peak', 'feature'))]
+features_mapped_to_genes
+save(features_mapped_to_genes, file = paste0('figs_xgboost/xgboost_models/input_features_for_background_mapped_to_genes.rda'))
+features_mapped_to_genes_df <- data.frame(features_mapped_to_genes)
+write.csv(features_mapped_to_genes_df, 'figs_xgboost/xgboost_models/input_features_for_background_mapped_to_genes.csv')
+
+gene_list <- mcols(features_mapped_to_genes)[, c('ensembl_gene_id', 'gene_name')]
+gene_list <- unique(gene_list)
+gene_list
+
+write.table(gene_list, file = 'figs_xgboost/xgboost_models/input_features_for_background_gene_list.csv', row.names = FALSE)
+ids <- unique(gene_list$ensembl_gene_id)
+symbols <- as.character(unique(gene_list$gene_name))
+symbols <- symbols[symbols != '']
+write.table(ids, file = 'figs_xgboost/xgboost_models/input_features_for_background_gene_list_ensembl_ids.csv', row.names = FALSE, quote=FALSE, col.names = FALSE)
+write.table(symbols, file = 'figs_xgboost/xgboost_models/input_features_for_background_gene_list_symbols.csv', row.names = FALSE, quote=FALSE, col.names = FALSE)
+
+```
+
+
+Read in gene lists and output as separate gene_symbol and gene_id lists
+```{r}
+
+for (i in 0:3) {
+  print(i)
+  gene_list <- read.table(paste0('figs_xgboost/xgboost_models/', i, '_gene_list.csv'), header=TRUE)
+  ids <- unique(gene_list$ensembl_gene_id)
+  symbols <- as.character(unique(gene_list$gene_name))
+  symbols <- symbols[symbols != '']
+  write.table(ids, paste0('figs_xgboost/xgboost_models/', i, '_gene_list_ensembl.csv'), row.names=FALSE, col.names = FALSE, quote=FALSE)
+  write.table(symbols, paste0('figs_xgboost/xgboost_models/', i, '_gene_list_symbols.csv'), row.names=FALSE, col.names = FALSE, quote=FALSE)
+  
+}
+```
+

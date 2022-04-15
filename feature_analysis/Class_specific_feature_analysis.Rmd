@@ -1,0 +1,199 @@
+---
+title: "Class specific feature analysis"
+output: html_notebook
+---
+
+First, load in the genes for each class
+```{r}
+features_per_class_mapped_to_genes <- read.csv('features_per_class/features_per_class_mapped_to_genes.csv')
+  
+
+filter(features_per_class_mapped_to_genes, class == 0)['ensembl_gene_id']
+  
+
+# features before we map to genes: (so that we do not lose features that don't map to genes)
+features_per_class_not_mapped <- read.csv('features_per_class/features_per_class_df_models_combined_no_gene_info.csv')
+  
+dim(features_per_class_not_mapped)
+
+features_per_class_not_mapped$class = features_per_class_not_mapped$c
+features_per_class_not_mapped
+features_per_class_not_mapped$end <- features_per_class_not_mapped$start
+```
+
+# GREAT analysis for each class
+```{r}
+library(rGREAT)
+library(ggplot2)
+
+c <- 0
+
+great_analysis <- function(c) {
+  # get bed file for class features:
+  feature_bed <- features_per_class_not_mapped[features_per_class_not_mapped$c == c, c('seqnames', 'start', 'end')]
+  feature_bed$start <- feature_bed$start - 1 # bed files index from 0, so -1 from start
+  feature_bed$seqnames <- paste0('chr', feature_bed$seqnames)
+  colnames(feature_bed) <- c("V1", "V2", "V3")
+  feature_bed$V2 <- as.integer(feature_bed$V2)
+  feature_bed <- unique(feature_bed)
+  
+  # the background is all input features
+  bg_bed <- read.table('../figs_xgboost/xgboost_models/input_features_for_background.bed')
+  
+  job <- submitGreatJob(feature_bed, bg_bed, species='hg38')
+  tb = getEnrichmentTables(job)
+  to_return <- tb$`GO Biological Process`
+  to_return$class <- c
+  return(to_return)
+}
+
+enriched_BPs <- lapply(c(0,1,2,3,4), great_analysis)
+
+enriched_BPs_significant <- lapply(enriched_BPs, function (bps) bps[bps$Hyper_Adjp_BH < 0.05, ])
+
+# put in one dataframe
+enriched_BPs_significant_df <- rbind(enriched_BPs_significant[[1]], 
+      enriched_BPs_significant[[2]], 
+      enriched_BPs_significant[[3]], 
+      enriched_BPs_significant[[4]], 
+      enriched_BPs_significant[[5]]
+      )
+
+
+
+
+
+# now we can do a barplot for each class that had results
+pdf('features_per_class/GREAT_barplot_class_0.pdf', width=6, height=4)
+ggplot(enriched_BPs_significant[[1]]) + 
+  geom_col(aes(x = -log10(Hyper_Adjp_BH), y = reorder(name, -Hyper_Adjp_BH), fill=Hyper_Region_Set_Coverage), width = 0.8) + 
+  theme_bw() +
+  theme(axis.text = element_text(size=10, lineheight=0.75)) +
+  ylab('') + 
+  xlab('-log10(adjusted p-value)') +
+  labs(fill = 'Fraction of \nfeatures found \nin the term') 
+dev.off()
+pdf('features_per_class/GREAT_barplot_class_1.pdf', width=6, height=4)
+
+pdf('features_per_class/GREAT_barplot_class_1.pdf', width=6, height=4)
+ggplot(enriched_BPs_significant[[2]]) + 
+  geom_col(aes(x = -log10(Hyper_Adjp_BH), y = reorder(name, -Hyper_Adjp_BH), fill=Hyper_Region_Set_Coverage), width = 0.8) + 
+  theme_bw() +
+  theme(axis.text = element_text(size=10, lineheight=0.75)) +
+  ylab('') + 
+  xlab('-log10(adjusted p-value)') +
+  labs(fill = 'Fraction of \nfeatures found \nin the term') 
+dev.off()
+
+pdf('features_per_class/GREAT_barplot_class_2.pdf', width=7, height=4)
+ggplot(enriched_BPs_significant[[3]]) + 
+  geom_col(aes(x = -log10(Hyper_Adjp_BH), y = reorder(name, -Hyper_Adjp_BH), fill=Hyper_Region_Set_Coverage), width = 0.8) + 
+  theme_bw() +
+  theme(axis.text = element_text(size=10, lineheight=0.75)) +
+  ylab('') + 
+  xlab('-log10(adjusted p-value)') +
+  labs(fill = 'Fraction of \nfeatures found \nin the term') 
+dev.off()
+
+pdf('features_per_class/GREAT_barplot_class_4.pdf', width=6, height=4)
+enriched_BPs_significant[[5]] %>%
+  arrange(Hyper_Adjp_BH) %>%
+  slice(1:20) %>%
+  ggplot() + 
+  geom_col(aes(x = -log10(Hyper_Adjp_BH), y = reorder(name, -Hyper_Adjp_BH), fill=Hyper_Region_Set_Coverage), width = 0.8) + 
+  theme_bw() +
+  theme(axis.text = element_text(size=10, lineheight=0.75)) +
+  ylab('') + 
+  xlab('-log10(adjusted p-value)') +
+  labs(fill = 'Fraction of \nfeatures found \nin the term') 
+dev.off()
+
+```
+Summary:
+--------
+- Class 0 (normal) has membrane organisation and cell activation
+- Class 1 (chRCC) has regulation of signaling and cell communication, and regulation of other functions like molecular function.
+- Class 2 (chRCC) has negative regulation of double-strand break repair (via nonhomologous end joining), regulation of multicellular organismal process and germ-line stem cell population maintenance
+- Class 4 (pRCC) has developmental process, cell movement, localisation, defense response, response to stimulus, membrane organisation, leukocyte migration and cell adhesion, amongst others.
+Took Top 20 for class 4.
+
+
+# Feature locations relative to genes
+```{r}
+
+# load mapping to genes
+all_mapped_to_genes <- list()
+for (i in 0:3) {
+  load(paste0('../figs_xgboost/xgboost_models/', i ,'_features_mapped_to_genes.rda'))
+  mcols(features_mapped_to_genes)$model <- i
+  all_mapped_to_genes[i+1] <- features_mapped_to_genes
+}
+features_mapped_to_genes <- unlist(GRangesList(all_mapped_to_genes))
+features_mapped_to_genes
+
+c <- 0
+
+library(GenomicRanges)
+library(ChIPseeker)
+library(EnsDb.Hsapiens.v86) # the latest EnsDb.Hsapiens annotation package I could find
+ensdb <- EnsDb.Hsapiens.v86
+library(org.Hs.eg.db)
+
+get_peak_anno_for_class <- function(c) {
+  print(paste('Class', c))
+  features_per_class <- read.csv('features_per_class/features_per_class_df_models_combined_no_gene_info.csv')
+
+  features_one_class <- features_per_class[features_per_class$c == c, ]
+  features_Gr <- GRanges(seqnames=features_one_class$seqnames, ranges=IRanges(start=features_one_class$start, end=features_one_class$start), strand='*')
+  
+  print('Percentage that are mapped to genes:')
+  print(mean(features_Gr %in% features_mapped_to_genes)) # most of them (90%) can be mapped to genes
+
+  features_mapped_to_genes_one_class <- features_mapped_to_genes[features_mapped_to_genes %in% features_Gr]
+
+  no_mcols <- features_mapped_to_genes_one_class
+  mcols(no_mcols) <- NULL
+  seqlevelsStyle(no_mcols) <- "Ensembl"
+  names(no_mcols) <- paste0('X', 1:length(no_mcols))
+  peakAnno <- annotatePeak(no_mcols,TxDb=ensdb, annoDb="org.Hs.eg.db")
+  
+  return(peakAnno)
+}
+
+
+
+peakAnnos <- lapply(c(0,1,2,3,4), get_peak_anno_for_class)
+
+
+# and get background peakAnno
+load('../figs_xgboost/xgboost_models/input_features_for_background_mapped_to_genes.rda')
+bg_features_mapped_to_genes <- features_mapped_to_genes
+bg_no_mcols <- bg_features_mapped_to_genes
+mcols(bg_no_mcols) <- NULL
+seqlevelsStyle(bg_no_mcols) <- "Ensembl"
+names(bg_no_mcols) <- paste0('X', 1:length(bg_no_mcols))
+bg_peakAnno <- annotatePeak(bg_no_mcols,TxDb=ensdb, annoDb="org.Hs.eg.db")
+
+
+
+
+
+
+peakAnno_list <- c(peakAnnos[[1]],peakAnnos[[2]], peakAnnos[[3]], peakAnnos[[4]], peakAnnos[[5]], bg_peakAnno)
+names(peakAnno_list) <- c(paste0('normal (n=',as.character(peakAnnos[[1]]@peakNum), ')'), 
+                          paste0('ccRCC (n=',as.character(peakAnnos[[2]]@peakNum), ')'), 
+                          paste0('chRCC (n=',as.character(peakAnnos[[3]]@peakNum), ')'), 
+                          paste0('oncocytoma (n=',as.character(peakAnnos[[4]]@peakNum), ')'), 
+                          paste0('pRCC (n=',as.character(peakAnnos[[5]]@peakNum), ')'), 
+                          paste0('background (n=',as.character(bg_peakAnno@peakNum), ')')
+                        )
+                   
+pdf('features_per_class/feature_distribution_per_class.pdf', width=8, height=4) # and save
+plotAnnoBar(peakAnno_list, title="")
+dev.off()
+
+
+
+```
+
+

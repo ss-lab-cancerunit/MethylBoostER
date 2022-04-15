@@ -1,0 +1,10 @@
+\begin{tabular}{lrrrrrrrr}
+\toprule
+{} & \multicolumn{5}{l}{High-confidence} & \multicolumn{5}{l}{Moderate-confidence, first or second prediction} \\
+{} &  Chopra &  Brennan &    Wei &  Evelönn &  Chopra &  Brennan &    Wei &  Evelönn \\
+         &         &          &        &          &         &          &        &          \\
+\midrule
+Accuracy &   0.905 &    0.933 &  0.944 &    0.948 &   0.720 &    0.782 &  0.797 &    0.858 \\
+MCC      &   0.842 &    0.783 &  0.895 &    0.794 &   0.668 &    0.632 &  0.439 &    0.250 \\
+\bottomrule
+\end{tabular}

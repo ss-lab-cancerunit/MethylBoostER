@@ -1,0 +1,18 @@
+% latex table generated in R 4.1.2 by xtable 1.8-4 package
+% Sun Apr  3 09:18:23 2022
+\begin{table}[ht]
+\centering
+\begin{tabular}{rlrrrr}
+  \hline
+ & annotation & qvalue & l2fold & observed & expected \\ 
+  \hline
+1 & Promoter & 0.0035 & -0.1267 &  3617 & 3949.1070 \\ 
+  2 & Intron & 0.0035 & 0.5953 &   797 & 527.1990 \\ 
+  3 & threeUTR & 0.0187 & 0.3592 &   110 & 85.5380 \\ 
+  4 & downstream & 0.0245 & 1.4083 &     3 & 0.5070 \\ 
+  5 & fiveUTR & 0.0266 & 0.9799 &     8 & 3.5630 \\ 
+  6 & Exon & 0.0455 & 0.2551 &   123 & 102.9020 \\ 
+  7 & Intergenic & 0.0830 & 0.2384 &    70 & 59.1840 \\ 
+   \hline
+\end{tabular}
+\end{table}

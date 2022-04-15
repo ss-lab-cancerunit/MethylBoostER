@@ -1,0 +1,9 @@
+\begin{tabular}{lrrrrr}
+\toprule
+{} &  normal &  ccRCC &  chRCC &    onc &   pRCC \\
+\midrule
+F1        &     1.0 &  0.962 &  0.865 &  0.974 &  0.944 \\
+Precision &     1.0 &  0.967 &  0.832 &  1.000 &  0.944 \\
+Recall    &     1.0 &  0.957 &  0.903 &  0.949 &  0.944 \\
+\bottomrule
+\end{tabular}
