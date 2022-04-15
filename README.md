@@ -1,6 +1,8 @@
 # MethylBoostER - XGBoost to classify kidney cancer subtypes
 
 
+MethylBoostER is a multiclass XGBoost model that can classify pathological sub-types of renal tumours (ie, kidney cancer subtypes). This repository includes the code, the trained models and all kinds of results that demonstrate MethylBoostER's performance.
+
 ### Explanation of the files
 
 
