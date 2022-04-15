@@ -11,7 +11,8 @@ Look at the data in data/ folder:
 - See `UMAPs_of_data.ipynb` and `UMAPs/` for UMAP visualisations of the data
 - See `combining_EPIC_and_450k.R` (and perhaps `preprocess_TCGA_data.Rmd`) for how we processed the training/testing set
 - See `preprocess_validation_data.Rmd` for the preprocessing of the validation datasets 
-
+- The processed data we used are stored in this data repository: https://zenodo.org/record/6463893 (DOI 10.5281/zenodo.6463892)
+    + See the README within this repo for information about this data
 
 Train the XGBoost model:
 
